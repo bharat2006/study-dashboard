@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyOps — Learning Analytics Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Shown only if Firebase config placeholders haven't been filled in yet -->
+<div class="auth-overlay hidden" id="setupOverlay">
+  <div class="auth-card">
+    <div class="brand"><span class="dot"></span>StudyOps</div>
+    <div class="brand-sub">One-time cloud setup needed</div>
+    <div class="setup-notice">
+      This dashboard needs a free Firebase project to sync your data across your PC and phone.<br><br>
+      1. Go to <code>console.firebase.google.com</code> → Create a project (free)<br>
+      2. Build → Authentication → Get started → enable <code>Email/Password</code><br>
+      3. Build → Firestore Database → Create database (production mode, any region)<br>
+      4. Firestore → Rules tab → paste the rule below → Publish<br>
+      5. Project settings → your apps → Web app (&lt;/&gt;) → copy the <code>firebaseConfig</code> object<br>
+      6. Paste it into the <code>firebaseConfig</code> variable near the top of this file's &lt;script&gt; section, then reload this page.
+    </div>
+  </div>
+</div>
+
+<!-- Login / signup -->
+<div class="auth-overlay hidden" id="authOverlay">
+  <div class="auth-card">
+    <div class="brand"><span class="dot"></span>StudyOps</div>
+    <div class="brand-sub" id="authModeLabel">Sign in to your account</div>
+    <div class="auth-field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com"></div>
+    <div class="auth-field"><label>Password</label><input type="password" id="authPassword" placeholder="••••••••"></div>
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-actions">
+      <button id="authSubmitBtn">Sign In</button>
+    </div>
+    <div class="auth-switch" id="authSwitchLine">New here? <a id="authSwitchLink">Create an account</a></div>
+  </div>
+</div>
+
+<div class="sidebar hidden" id="appSidebar">
+  <div class="brand"><span class="dot"></span>StudyOps</div>
+  <div class="brand-sub">Learning Analytics Console</div>
+  <div class="nav" id="nav">
+    <div class="nav-item" data-page="dashboard"><span class="ic">🏠</span>Dashboard</div>
+    <div class="nav-item" data-page="log"><span class="ic">📝</span>Daily Study Log</div>
+    <div class="nav-item" data-page="subjects"><span class="ic">📚</span>Subject Master</div>
+    <div class="nav-item" data-page="calendar"><span class="ic">📅</span>Calendar Heatmap</div>
+    <div class="nav-item" data-page="weekly"><span class="ic">📊</span>Weekly Analytics</div>
+    <div class="nav-item" data-page="monthly"><span class="ic">📈</span>Monthly Analytics</div>
+    <div class="nav-item" data-page="raw"><span class="ic">📋</span>Raw Data</div>
+  </div>
+  <div class="theme-toggle" id="themeToggle">
+    <span id="themeToggleLabel">🌙 Dark mode</span>
+    <span class="switch-track"><span class="switch-knob"></span></span>
+  </div>
+  <div class="sidebar-foot" style="flex-direction:column; align-items:stretch; gap:6px;">
+    <div style="display:flex; justify-content:space-between;"><span id="entryCountFoot">0 entries</span><span id="clockFoot"></span></div>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span id="syncedEmail" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;" title=""></span>
+      <a id="signOutLink" style="color:var(--coral); cursor:pointer; text-decoration:underline;">Sign out</a>
+    </div>
+  </div>
+</div>
+
+<div class="main hidden" id="appMain">
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="page-dashboard" class="page">
+    <div class="topbar">
+      <div><div class="page-title">🏠 Dashboard</div><div class="page-sub">TODAY'S EFFORT DISTRIBUTION &amp; QUICK LOG</div></div>
+      <div class="today-chip" id="todayChip"></div>
+    </div>
+
+    <div class="grid cols-4" style="margin-bottom:16px;">
+      <div class="card"><div class="card-label">Today · Total Time</div><div class="stat-value cyan" id="statTodayTime">0m</div><div class="stat-delta" id="statTodayDelta">no activity logged yet</div></div>
+      <div class="card"><div class="card-label">Current Streak</div><div class="stat-value" id="statStreak">0 days</div><div class="stat-delta">consecutive days with ≥1 log</div></div>
+      <div class="card"><div class="card-label">This Week · Total</div><div class="stat-value" id="statWeekTime">0m</div><div class="stat-delta" id="statWeekDelta">vs last week</div></div>
+      <div class="card"><div class="card-label">Subjects Tracked</div><div class="stat-value amber" id="statSubjectCount">0</div><div class="stat-delta">in Subject Master</div></div>
+    </div>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <h3 class="section-h">Effort Split — Today</h3>
+        <div id="todayEffortBars"></div>
+      </div>
+      <div class="card">
+        <h3 class="section-h">Quick Log Entry</h3>
+        <div id="quickLogForm"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3 class="section-h">Last 7 Days — Zero-Activity Check</h3>
+      <div id="last7Strip"></div>
+    </div>
+  </section>
+
+  <!-- ============ DAILY STUDY LOG ============ -->
+  <section id="page-log" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📝 Daily Study Log</div><div class="page-sub">LOG STUDY / LAB TIME PER SUBJECT PER DAY</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="section-h">New Entry</h3>
+      <div id="logForm"></div>
+    </div>
+    <div class="card">
+      <div class="flex-between">
+        <h3 class="section-h" style="margin-bottom:0;">Entries — <span id="logDateLabel"></span></h3>
+        <input type="date" id="logDateFilter" style="width:auto;">
+      </div>
+      <div id="logDayTable"></div>
+    </div>
+  </section>
+
+  <!-- ============ SUBJECT MASTER ============ -->
+  <section id="page-subjects" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📚 Subject Master</div><div class="page-sub">DEFINE TOPICS YOU ARE TRACKING</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="section-h">Add Subject</h3>
+      <div id="subjectForm"></div>
+    </div>
+    <div class="card">
+      <h3 class="section-h">All Subjects</h3>
+      <div id="subjectTable"></div>
+    </div>
+  </section>
+
+  <!-- ============ CALENDAR HEATMAP ============ -->
+  <section id="page-calendar" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📅 Calendar Heatmap</div><div class="page-sub">DAILY EFFORT INTENSITY — 0% DAYS ARE FLAGGED</div></div>
+    </div>
+    <div class="card">
+      <div class="cal-head">
+        <div class="cal-month-label" id="calMonthLabel"></div>
+        <div class="cal-nav">
+          <button class="ghost small" id="calPrev">◀ PREV</button>
+          <button class="ghost small" id="calToday">TODAY</button>
+          <button class="ghost small" id="calNext">NEXT ▶</button>
+        </div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-legend">
+        <span>0 min</span>
+        <span class="sq" style="background:var(--bg-void);"></span>
+        <span class="sq" style="background:rgba(57,214,232,0.18);"></span>
+        <span class="sq" style="background:rgba(57,214,232,0.4);"></span>
+        <span class="sq" style="background:rgba(57,214,232,0.65);"></span>
+        <span class="sq" style="background:var(--cyan); box-shadow:0 0 8px var(--cyan-glow);"></span>
+        <span>more time</span>
+      </div>
+      <div class="day-detail" id="calDayDetail"><div class="empty-state">Click a day to see its subject breakdown.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ WEEKLY ANALYTICS ============ -->
+  <section id="page-weekly" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📊 Weekly Analytics</div><div class="page-sub">EFFORT % BY SUBJECT — WEEKLY ROLL-UP</div></div>
+      <div class="cal-nav">
+        <button class="ghost small" id="weekPrev">◀ PREV</button>
+        <span class="today-chip" id="weekLabel"></span>
+        <button class="ghost small" id="weekNext">NEXT ▶</button>
+      </div>
+    </div>
+    <div class="grid cols-4" style="margin-bottom:16px;">
+      <div class="card"><div class="card-label">Week Total</div><div class="stat-value cyan" id="wkTotal">0m</div></div>
+      <div class="card"><div class="card-label">Active Days</div><div class="stat-value" id="wkActiveDays">0 / 7</div></div>
+      <div class="card"><div class="card-label">Study Time</div><div class="stat-value" id="wkStudy">0m</div></div>
+      <div class="card"><div class="card-label">Lab Time</div><div class="stat-value" id="wkLab">0m</div></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><h3 class="section-h">Effort % by Subject</h3><div id="wkBars"></div></div>
+      <div class="card"><h3 class="section-h">Distribution</h3><div class="chart-wrap"><canvas id="wkPie"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 class="section-h">Daily Breakdown (Mon–Sun)</h3>
+      <div class="chart-wrap"><canvas id="wkBarChart"></canvas></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 class="section-h">Missed Days — Auto-flagged 0%</h3>
+      <div id="wkMissed"></div>
+    </div>
+  </section>
+
+  <!-- ============ MONTHLY ANALYTICS ============ -->
+  <section id="page-monthly" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📈 Monthly Analytics</div><div class="page-sub">EFFORT % BY SUBJECT — MONTHLY ROLL-UP</div></div>
+      <div class="cal-nav">
+        <button class="ghost small" id="moPrev">◀ PREV</button>
+        <span class="today-chip" id="moLabel"></span>
+        <button class="ghost small" id="moNext">NEXT ▶</button>
+      </div>
+    </div>
+    <div class="grid cols-4" style="margin-bottom:16px;">
+      <div class="card"><div class="card-label">Month Total</div><div class="stat-value cyan" id="moTotal">0m</div></div>
+      <div class="card"><div class="card-label">Active Days</div><div class="stat-value" id="moActiveDays">0 / 30</div></div>
+      <div class="card"><div class="card-label">Study Time</div><div class="stat-value" id="moStudy">0m</div></div>
+      <div class="card"><div class="card-label">Lab Time</div><div class="stat-value" id="moLab">0m</div></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><h3 class="section-h">Effort % by Subject</h3><div id="moBars"></div></div>
+      <div class="card"><h3 class="section-h">Distribution</h3><div class="chart-wrap"><canvas id="moPie"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 class="section-h">Weekly Trend Within Month</h3>
+      <div class="chart-wrap"><canvas id="moTrendChart"></canvas></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 class="section-h">Missed Days — Auto-flagged 0%</h3>
+      <div id="moMissed"></div>
+    </div>
+  </section>
+
+  <!-- ============ RAW DATA ============ -->
+  <section id="page-raw" class="page hidden">
+    <div class="topbar">
+      <div><div class="page-title">📋 Raw Data</div><div class="page-sub">ALL LOGGED ENTRIES</div></div>
+      <div class="pill-input-row">
+        <select id="rawSubjectFilter" style="width:auto;"><option value="">All subjects</option></select>
+        <button class="ghost small" id="exportCsv">EXPORT CSV</button>
+      </div>
+    </div>
+    <div class="card"><div id="rawTable"></div></div>
+  </section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
